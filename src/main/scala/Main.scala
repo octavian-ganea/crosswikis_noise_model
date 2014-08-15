@@ -16,6 +16,7 @@ object Main {
   }
   
   // Extract (ent, name, #(e,n)) from one line of form <url><tab><cprob><space><string>[<tab><score>[<space><score>]*]
+  // Keep just names with counters >= 5
   def parseOneLineAndExtractMentionAndCounters(ent: String, linesIterator: Iterable[String]) : Array[(String, Int)] = {
     var mentionCountsArray = Array.empty[(String, Int)]
     for (line <- linesIterator) {
@@ -40,17 +41,7 @@ object Main {
     // Sort array descending by the counts of the name
     mentionCountsArray.sortWith( (x, y) => x._2 > y._2)
   }
-  
-   // Human readable output formatting.
-  def toString_fullNamesMapForOneEntity(ent: String, namesMap : Array[(String, Int)]) : String = {
-    var output = ent + "\t==>\n" 
-    for ((name, counter) <- namesMap) {
-      output += "\t" + name + "\t" + counter + "\n"
-    }
-    if (namesMap.size == 0) ""
-    else output
-  }
-  
+    
   def computeInitialThetas(ent: String, namesMap : Array[(String, Int)]) : HashMap[String, (Int, Double)] = {
     var total_num_e = 0.0 
 	for ((name, counter) <- namesMap) {
@@ -66,6 +57,7 @@ object Main {
   def p_x_cond_m_beta(x : String, m : String) : Double = {
     var rez = 1.0
     for (i <- 0 to Math.min(x.size,m.size) - 1) {
+      rez *= 10
       if (x(i) == m(i))
         rez *= 0.5
       else if (x(i) >= 32 && x(i) < 128)
@@ -107,7 +99,7 @@ object Main {
     mentionThetasArray
   }
 
-  def computeUncorruptedNames(ent: String, namesAllThetasMap : HashMap[String, (Double, Double)]) : HashMap[String, (String, Double, Double)] = {
+  def computeUncorruptedRepresentativeNames(ent: String, namesAllThetasMap : HashMap[String, (Double, Double)]) : HashMap[String, (String, Double, Double)] = {
     var mentionThetasArray : HashMap[String, (String, Double, Double)] = HashMap()
     
     for ((n, (theta_n_0, theta_n_1)) <- namesAllThetasMap) {
@@ -128,36 +120,34 @@ object Main {
   // Human readable output formatting.
   def toString_ThetasMapForOneEntity(ent: String, namesMap : HashMap[String, (String, Double, Double)]) : String = {
     var output = ent + "\t==>\n" 
-    for ((name, (real_n, theta_0, theta_1)) <- namesMap) {
-      output += "\t" + name + "\tReal=" + real_n + "\t" + theta_1 + "\t(" + theta_0 + ")\n"
+    for ((name, (realName, theta_0, theta_1)) <- namesMap) {
+      if (name != realName) output += "**"
+      output += "\t" + name + "\t ---> " + realName + "\t" + theta_1 + "\t(" + theta_0 + ")\n"
     }
     if (namesMap.size == 0) ""
     else output
   }
   
   def main(args: Array[String]) : Unit = {
+	if (args.length < 2) {
+      System.err.println("Usage: input_file output_file")
+      System.exit(1)
+    }
+    
     val conf = new SparkConf().setAppName("Crosswikis cleaning")
     val sc = new SparkContext(conf)
-    val logFile = args(0);
     
-    val dataInRDD = sc.textFile(logFile).map(line => { val ent = line.split("\t").head; (ent , line)} )
-    									.groupByKey
+    val dataInRDD = sc.textFile(args(0)).map(line => { val ent = line.split("\t").head; (ent , line)} ) // Extract entity first
+    									.groupByKey  // Group by entity
     									.map{ case (ent, linesIter) => (ent, parseOneLineAndExtractMentionAndCounters(ent, linesIter)) }
-    
     val thetasRDD = dataInRDD.map{ case (ent, namesMap) => (ent, computeInitialThetas(ent, namesMap)) }
     						 .map{ case (ent, namesTheta0Map) => (ent, computeSecondThetas(ent, namesTheta0Map))}
-    						 .map{ case (ent, namesTheta0Map) => (ent, computeUncorruptedNames(ent, namesTheta0Map))}    						 
-    						 .map{ case (ent, namesTheta0Map) => toString_ThetasMapForOneEntity(ent, namesTheta0Map) }
+    						 .map{ case (ent, namesTheta1Map) => (ent, computeUncorruptedRepresentativeNames(ent, namesTheta1Map))}    						 
+    						 .map{ case (ent, namesMap) => toString_ThetasMapForOneEntity(ent, namesMap) }
     						 .filter{ text => text != "" }
     						 .saveAsTextFile(args(1))
+    						 
     
-    /*
-    // Print the output data: 
-    dataInRDD.sortByKey(true)
-			.map{ case (ent, namesMap) => toString_fullNamesMapForOneEntity(ent, namesMap) }
-    		.filter{ text => text != "" }
-			.saveAsTextFile(args(1))
-     */
   }
   
 }
