@@ -2,6 +2,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.SparkConf
 import scala.collection.mutable.HashMap
+import scala.collection.mutable.ArrayBuffer
 
 object Main {
   
@@ -42,16 +43,17 @@ object Main {
     mentionCountsArray.sortWith( (x, y) => x._2 > y._2)
   }
     
-  def computeInitialThetas(ent: String, namesMap : Array[(String, Int)]) : HashMap[String, (Int, Double)] = {
+  // theta^0_{n,e} = #(n,e)/normalizing_ct
+  def computeInitialThetasForOneEnt(namesMap : Array[(String, Int)]) : HashMap[String, (Int, Double)] = {
     var total_num_e = 0.0 
 	for ((name, counter) <- namesMap) {
 	  total_num_e += counter
 	}
-    var mentionThetasArray : HashMap[String, (Int, Double)] = HashMap()
+    val thetasArray = new HashMap[String, (Int, Double)]()
 	for ((name, counter) <- namesMap) {
-	  mentionThetasArray += (name -> (counter, counter / total_num_e))
+	  thetasArray += ((name, (counter, counter / total_num_e)))
 	}    
-    mentionThetasArray
+    thetasArray
   }
   
   def p_x_cond_m_beta(x : String, m : String) : Double = {
@@ -62,7 +64,7 @@ object Main {
         rez *= 0.5
       else if (x(i) >= 32 && x(i) < 128)
         rez *= 0.5/97
-      else // Don't support other chars except from [32,127] for the moment.
+      else // Don't support replacement with other chars except from [32,127] for the moment.
         rez = 0
     }
     
@@ -72,8 +74,11 @@ object Main {
     rez
   }
 
-  def computeSecondThetas(ent: String, namesFirstThetasMap : HashMap[String, (Int, Double)]) : HashMap[String, (Double, Double)] = {
-    var numitorsMap : HashMap[String, Double] = HashMap()
+  // theta^1_{m,e} \propto  \sum_n #(n,e) * \frac {\theta^(0)_m * p(n|m;beta)} {\sum_m' \theta^(0)_m' * p(n|m';beta)}
+  def computeSecondThetasForOneEnt(namesFirstThetasMap : HashMap[String, (Int, Double)]) : HashMap[String, (Int, Double, Double)] = {
+    
+    // Compute numitorsMap(n) = \sum_m' \theta^(0)_m' * p(n|m';beta)
+    var numitorsMap : HashMap[String, Double] = new HashMap()
     for ((n, (num_n_e, theta_n_0)) <- namesFirstThetasMap) {
       var numitor_n = 0.0
 	  for ((m_prim, (num_m_prim_e, theta_m_prim_0)) <- namesFirstThetasMap) {
@@ -82,7 +87,8 @@ object Main {
       numitorsMap += (n -> numitor_n)
     }
 
-    var mentionThetasArray : HashMap[String, (Double, Double)] = HashMap()
+    // Compute unnormalized thetas^(1)
+    var thetasArray : HashMap[String, (Int, Double, Double)] = HashMap()
     var Z_thetas_1 = 0.0
     for ((m, (num_m_e, theta_m_0)) <- namesFirstThetasMap) {
 	  var theta_m_1 = 0.0
@@ -90,37 +96,39 @@ object Main {
 	    theta_m_1 += num_n_e * theta_m_0 * p_x_cond_m_beta(n, m) / numitorsMap(n)
 	  }
 	  Z_thetas_1 += theta_m_1
-	  mentionThetasArray += (m -> (theta_m_0, theta_m_1))
+	  thetasArray += (m -> (num_m_e, theta_m_0, theta_m_1))
 	}
     
-    for ((m, (theta_m_0, theta_m_1)) <- mentionThetasArray) {
-      mentionThetasArray(m) =  (theta_m_0, theta_m_1 / Z_thetas_1)
+    // Normalize thetas:
+    for ((m, (num_m_e, theta_m_0, theta_m_1)) <- thetasArray) {
+      thetasArray(m) =  (num_m_e, theta_m_0, theta_m_1 / Z_thetas_1)
     }
-    mentionThetasArray
+    thetasArray
   }
 
-  def computeUncorruptedRepresentativeNames(ent: String, namesAllThetasMap : HashMap[String, (Double, Double)]) : HashMap[String, (String, Double, Double)] = {
-    var mentionThetasArray : HashMap[String, (String, Double, Double)] = HashMap()
+  // uncorrupted(n) = argmax_m theta_m * p(n|m;beta)
+  def computeUncorruptedRepresentativeNames(namesAllThetasMap : HashMap[String, (Int, Double, Double)]) : HashMap[String, (String, Int, Double, Double)] = {
+    var thetasArray : HashMap[String, (String, Int, Double, Double)] = HashMap()
     
-    for ((n, (theta_n_0, theta_n_1)) <- namesAllThetasMap) {
+    for ((n, (num_n_e, theta_n_0, theta_n_1)) <- namesAllThetasMap) {
       var real_n = n
       var score_real_n = 0.0
-      for ((m, (theta_m_0, theta_m_1)) <- namesAllThetasMap) {
+      for ((m, (num_m_e, theta_m_0, theta_m_1)) <- namesAllThetasMap) {
         if (theta_m_1 * p_x_cond_m_beta(n, m) > score_real_n) {
           real_n = m
           score_real_n = theta_m_1 * p_x_cond_m_beta(n, m)
         }
       }
-      mentionThetasArray += (n -> (real_n, theta_n_0, theta_n_1))
+      thetasArray += (n -> (real_n, num_n_e, theta_n_0, theta_n_1))
     }
-    mentionThetasArray
+    thetasArray
   }
   
   
   // Human readable output formatting.
-  def toString_ThetasMapForOneEntity(ent: String, namesMap : HashMap[String, (String, Double, Double)]) : String = {
+  def toString_ThetasMapForOneEntity(ent: String, namesMap : HashMap[String, (String, Int, Double, Double)]) : String = {
     var output = ent + "\t==>\n" 
-    for ((name, (realName, theta_0, theta_1)) <- namesMap) {
+    for ((name, (realName, num_name_ent, theta_0, theta_1)) <- namesMap) {
       if (name != realName) output += "**"
       output += "\t" + name + "\t ---> " + realName + "\t" + theta_1 + "\t(" + theta_0 + ")\n"
     }
@@ -140,14 +148,13 @@ object Main {
     val dataInRDD = sc.textFile(args(0)).map(line => { val ent = line.split("\t").head; (ent , line)} ) // Extract entity first
     									.groupByKey  // Group by entity
     									.map{ case (ent, linesIter) => (ent, parseOneLineAndExtractMentionAndCounters(ent, linesIter)) }
-    val thetasRDD = dataInRDD.map{ case (ent, namesMap) => (ent, computeInitialThetas(ent, namesMap)) }
-    						 .map{ case (ent, namesTheta0Map) => (ent, computeSecondThetas(ent, namesTheta0Map))}
-    						 .map{ case (ent, namesTheta1Map) => (ent, computeUncorruptedRepresentativeNames(ent, namesTheta1Map))}    						 
-    						 .map{ case (ent, namesMap) => toString_ThetasMapForOneEntity(ent, namesMap) }
-    						 .filter{ text => text != "" }
-    						 .saveAsTextFile(args(1))
-    						 
     
+    val thetasRDD = dataInRDD.mapValues{ namesMap => computeInitialThetasForOneEnt(namesMap) }
+    						 .mapValues{ namesTheta0Map => computeSecondThetasForOneEnt(namesTheta0Map)}
+    						 .mapValues{ namesTheta1Map => computeUncorruptedRepresentativeNames(namesTheta1Map)}
+    						 .filter{ case (ent, namesMap) => namesMap.size > 0 }
+    						 .map{ case (ent, namesMap) => toString_ThetasMapForOneEntity(ent, namesMap) }
+    						 .saveAsTextFile(args(1))
   }
   
 }
