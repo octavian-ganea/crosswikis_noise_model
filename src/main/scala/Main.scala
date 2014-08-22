@@ -3,8 +3,10 @@ import org.apache.spark.SparkContext._
 import org.apache.spark.SparkConf
 import scala.collection.mutable.HashMap
 import scala.collection.mutable.ArrayBuffer
+import org.apache.spark.broadcast.Broadcast
+
 import ParseOriginalCrosswikisFile.parseOneLineAndExtractMentionAndCounters
-import Betas.p_x_cond_m_beta
+import Betas.p_y_cond_x
 
 
 object Main {
@@ -15,16 +17,18 @@ object Main {
   // Computes uncorrupted(n) = argmax_m theta_m * p(n|m;beta)
   // Input: hashmap {m : (#(m,e), theta0_m, theta1_m)}
   // Output: hashmap {m : (uncorrupted(m), #(m,e), theta0_m, theta1_m)}
-  def computeUncorruptedRepresentativeNames(namesAllThetasMap : HashMap[String, (Int, Double)]) : HashMap[String, (String, Int, Double)] = {
+  def computeUncorruptedRepresentativeNames(
+      namesAllThetasMap : HashMap[String, (Int, Double)], c : CondTransducer) : HashMap[String, (String, Int, Double)] = {
+    
     val thetasArray : HashMap[String, (String, Int, Double)] = HashMap()
     
     for ((n, (num_n_e, theta_n_1)) <- namesAllThetasMap) {
       var real_n = n
       var score_real_n = 0.0
       for ((m, (num_m_e, theta_m_1)) <- namesAllThetasMap) {
-        if (theta_m_1 * p_x_cond_m_beta(n, m) > score_real_n) {
+        if (theta_m_1 * p_y_cond_x(n, m, c) > score_real_n) {
           real_n = m
-          score_real_n = theta_m_1 * p_x_cond_m_beta(n, m)
+          score_real_n = theta_m_1 * p_y_cond_x(n, m, c)
         }
       }
       thetasArray += (n -> (real_n, num_n_e, theta_n_1))
@@ -34,13 +38,22 @@ object Main {
   
  
   def main(args: Array[String]) : Unit = {
-	if (args.length < 2) {
+    UnitTests.tests
+    
+    if (args.length < 2) {
       System.err.println("Usage: input_file output_file")
       System.exit(1)
     }
-	
+
+    System.setProperty("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+    System.setProperty("spark.kryo.registrator", "MyRegistrator")
+
     val conf = new SparkConf().setAppName("Crosswikis cleaning")
     val sc = new SparkContext(conf)
+    
+    val condTransducer = new CondTransducer
+    condTransducer.initC_0
+    var c = sc.broadcast(condTransducer)
     
     val entNamesRDDMap = sc.textFile(args(0))
     						.map(line => { val ent = line.split("\t").head; (ent , line)} ) // Extract entity first
@@ -50,9 +63,10 @@ object Main {
 
     val thetasRDD = entNamesRDDMap
     						.mapValues{ namesMap => Thetas.computeInitialThetasForOneEnt(namesMap) }
-    						.mapValues{ namesTheta0Map => Thetas.updateThetasForOneEnt(namesTheta0Map)}
-    						.mapValues{ namesTheta1Map => computeUncorruptedRepresentativeNames(namesTheta1Map)}
+    						.mapValues{ namesTheta0Map => Thetas.updateThetasForOneEnt(namesTheta0Map, c.value)}
+    						.mapValues{ namesTheta1Map => computeUncorruptedRepresentativeNames(namesTheta1Map, c.value)}
     						.map{ case (ent, namesMap) => Utils.toString_ThetasMapForOneEntity(ent, namesMap) }
+    						
     						.saveAsTextFile(args(1))
   }
   
