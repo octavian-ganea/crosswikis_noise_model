@@ -1,4 +1,5 @@
-import scala.collection.mutable.HashMap
+import scala.collection.JavaConversions.mapAsScalaMap
+import scala.collection.mutable.Map
 
 object Utils {
   
@@ -15,7 +16,7 @@ object Utils {
   // Human readable output formatting.
   // Input: hashmap {m : (uncorrupted(m), #(m,e), theta0_m, theta1_m)}
   // Output: output text in a human readable format
-  def toString_ThetasMapForOneEntity(ent: String, namesMap : HashMap[String, (String, Int, Double)]) : String = {
+  def toString_ThetasMapForOneEntity(ent: String, namesMap : Map[String, (String, Int, Double)]) : String = {
     var output = ent + "\t==>\n" 
     for ((name, (realName, num_name_ent, theta_1)) <- namesMap) {
       if (name != realName) output += "**"
@@ -23,5 +24,22 @@ object Utils {
     }
     if (namesMap.size == 0) ""
     else output
+  }
+  
+  
+  def convertChar(a : Char) : Int = {
+    if (a == '\0') 0
+    else a - 31
+  }  
+  
+  
+  def addMatrices(mat1 : Array[Array[Double]], mat2 : Array[Array[Double]]) : Array[Array[Double]] = {
+    var mat = mat1
+    for (i <- 0 to 96) {
+      for (j <- 0 to 96) {
+        mat(i)(j) += mat2(i)(j)
+      }
+    }
+    mat
   }
 }

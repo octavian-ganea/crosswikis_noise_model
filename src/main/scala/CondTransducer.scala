@@ -1,44 +1,47 @@
-import scala.collection.mutable.HashMap
+import Array._
+import Utils.convertChar
 
 class CondTransducer extends Serializable {
   // Eps defining insertion or deletion operation. 
   val eps = '\0'
 
-  // C contains the primitive conditional probabilties c(a|b).
-  private var c = new HashMap[Char, HashMap[Char, Double]]
+  val init_gamma = 0.5
 
+  // C contains the primitive conditional probabilities c(a|b).
+  private var c = ofDim[Double](97, 97)
+  
   // Returns c(b|a).
   def get(a : Char, b : Char) : Double = {
-    if (!c.contains(a)) {
+    val aa = convertChar(a)
+    val bb = convertChar(b)
+    
+    if (aa < 0 || aa >= 97 || bb < 0 || bb >= 97) {
       if (a == b) return 1.0
       else return 0.0
     }
-    
-    if (!c(a).contains(b)) {
-      return 0.0;
-    }
-    c(a)(b)
+    c(aa)(bb)
   }
   
   // Simple dummy init for c(b|a).
   def initC_0 = {
-	c = new HashMap[Char, HashMap[Char, Double]]
+	c = ofDim[Double](97, 97)
 
-	val gamma = 0.2
-	c += (eps -> new HashMap[Char, Double])
-	c(eps) += (eps -> gamma)
+	c(convertChar(eps))(convertChar(eps)) = init_gamma
 	
 	for (b <- '\040' to '\177') {
-	  c(eps) += (b -> (1 - c(eps)(eps)) / 96)
+	  c(convertChar(eps))(convertChar(b)) = (1 - init_gamma) / 96
 	}
 	
 	for (a <- '\040' to '\177') {
-	  c += (a -> new HashMap[Char, Double])
+	  c(convertChar(a))(convertChar(a)) = init_gamma / 2
 	  for (b <- '\040' to '\177') {
-	    c(a) += (b -> c(eps)(eps) / 97)
+	    if (b != a) {
+	      c(convertChar(a))(convertChar(b)) = (init_gamma - c(convertChar(a))(convertChar(a))) / 96	      
+	    }
 	  }
-	  c(a) += (eps -> c(eps)(eps) / 97)
+	  c(convertChar(a))(convertChar(eps)) = (init_gamma - c(convertChar(a))(convertChar(a))) / 96
 	}
+
 	checkNormalizationConditions_1_2_3
   }
   
@@ -46,23 +49,19 @@ class CondTransducer extends Serializable {
   def checkNormalizationConditions_1_2_3 = {
     var result = true
 
-    assert(c.contains(eps), "[ERROR] Beta does not contain eps")
     var sum_3 = 0.0
-    for ((b, prob) <- c(eps)) {
-      sum_3 += prob
+    for (b <- 0 to 96) {
+      sum_3 += c(0)(b)
     }
     assert(Math.abs(sum_3 - 1.0) < 0.001, "[ERROR] Beta is not correct for eps with sum = " + sum_3)
           
-    for ((a, hashmap) <- c) {
-      assert(c(a).contains(eps), "[ERROR] Beta(" + a + ") does not contain eps")
-      if (a != eps) {
+    for (a <- 1 to 96) {
         var sum_2 = 0.0
-        for ((b, prob) <- c(a)) {
-          sum_2 += prob
+        for (b <- 0 to 96) {
+          sum_2 += c(a)(b)
         }
-        sum_2 += 1 - c(eps)(eps)
+        sum_2 += 1 - c(0)(0)
         assert(Math.abs(sum_2 - 1.0) < 0.001, "[ERROR] Beta is not correct for char " + a + " with sum = " + sum_2)
-      }
     }
   }
   
