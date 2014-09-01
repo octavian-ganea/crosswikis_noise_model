@@ -14,12 +14,21 @@ class CondTransducer extends Serializable {
   def get(a : Char, b : Char) : Double = {
     val aa = convertChar(a)
     val bb = convertChar(b)
-    
+    getFromIntIndexes(aa,bb)
+  }
+
+  def getFromIntIndexes(aa : Int, bb : Int) : Double = {
     if (aa < 0 || aa >= 97 || bb < 0 || bb >= 97) {
-      if (a == b) return 1.0
+      if (aa == bb) return 1.0
       else return 0.0
     }
     c(aa)(bb)
+  }  
+  
+  def set(aa: Int, bb: Int, v: Double) = {
+    if (aa >= 0 && aa < 97 && bb >= 0 && bb < 97) {
+      c(aa)(bb) = v
+    }
   }
   
   // Simple dummy init for c(b|a).

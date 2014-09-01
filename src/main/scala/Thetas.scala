@@ -7,7 +7,7 @@ import Betas.p_y_cond_x
 object Thetas {
   // theta^0_{n,e} = #(n,e)/(\sum_n #(n,e))
   // Input: namesMap - array of pairs (name, #(n,e))
-  // Output: hashmap {m : (#(m,e), theta0_m)}    
+  // Output: array {(m, #(m,e), theta0_m)}    
   def computeInitialThetasForOneEnt(namesMap : Array[(String, Int)]) : Array[(String, Int, Double)] = {
     var total_num_e = 0.0 
 	for ((name, counter) <- namesMap) {
@@ -24,8 +24,8 @@ object Thetas {
   
   
   // Computes theta^1_{m,e} \propto  \sum_n #(n,e) * \frac {\theta^(0)_m * p(n|m;beta)} {\sum_m' \theta^(0)_m' * p(n|m';beta)}
-  // Input: currentThetasForOneEntMap - hashmap {m : (#(m,e), theta0_m)}
-  // Output: hashmap {m : (#(m,e), theta1_m)}
+  // Input: currentThetasForOneEntMap - array {(m, #(m,e), theta0_m)}
+  // Output: array {(m, #(m,e), theta1_m)}
   def updateThetasForOneEnt(
       curThetasForOneEnt : Array[(String, Int, Double)], c : Broadcast[CondTransducer]) : Array[(String, Int, Double)] = {
 

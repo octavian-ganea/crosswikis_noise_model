@@ -65,57 +65,83 @@ object Betas {
     mat(0)(y_stop)
   }  
 
+  
+  // Compute \sum_m num_m_e * alpha(m|m)
+  def computeIdenticalStringsMass(
+      namesThetaUncorrupted : Array[(String, String, Int, Double)], cc : Broadcast[CondTransducer]) : Double = {
+    var sum = 0.0
+    for ((y, y_real, num_y_e, theta) <- namesThetaUncorrupted) {
+      sum += num_y_e * alpha(y, y, y.size, y.size, cc.value)
+    }
+    sum
+  }  
+  
   // The expectation step from the Oncina paper: compute delta(b|a) using dynamic programming.
   def computeDeltas(
       namesThetaUncorrupted : Array[(String, String, Int, Double)], cc : Broadcast[CondTransducer]) : Array[Array[Double]] = {
+    computeDeltasOrFFs(namesThetaUncorrupted, cc , true)
+  }
+
+  // Compute the unnormalized ff value for one entity: ff(b|a) = \sum_m num_m_e * \sum_{xax' = m , yby' = m} alpha(y|x) * c(b|a) * beta(y'|x') 
+  // This should be normalized by dividing each ff(b|a) to \sum_e \sum_m num_m_e
+  def computeFFs(
+      namesThetaUncorrupted : Array[(String, String, Int, Double)], cc : Broadcast[CondTransducer]) : Array[Array[Double]] = {
+    computeDeltasOrFFs(namesThetaUncorrupted, cc , false)
+  }
+  
+  def computeDeltasOrFFs(
+      namesThetaUncorrupted : Array[(String, String, Int, Double)], cc : Broadcast[CondTransducer], compDeltas : Boolean) : Array[Array[Double]] = {
     
     val c = cc.value
     var mat = Array.fill[Double](97,97)(0)
+    
+    for ((y, y_real, num_y_e, theta) <- namesThetaUncorrupted) {
+      val x = if (compDeltas) y_real else y
 
-    for ((y, x, num, theta) <- namesThetaUncorrupted) {
-      if (x.size > 0 && y.size > 0) {
-        
+      if (x.size > 0 && y.size > 0) {        
         // Dynamic programming: Precompute alpha and beta values to reduce time complexity.
         
         // Forward alpha function as defined in page 9 of Oncina paper, but using dynamic prog.
         var alphaMatrix = Array.fill[Double](x.size + 1, y.size + 1)(0)
-        for (x_index <- 0 to x.size) {
-          for (y_index <- 0 to y.size) {
-            if (x_index == 0 && y_index == 0) {
-              alphaMatrix(x_index)(y_index) += 1.0
+        for (ix <- 0 to x.size) {
+          for (iy <- 0 to y.size) {
+            if (ix == 0 && iy == 0) {
+              alphaMatrix(ix)(iy) += 1.0
             }
-            if (x_index > 0) {
-              alphaMatrix(x_index)(y_index) += alphaMatrix(x_index - 1)(y_index) * c.get(x(x_index - 1), c.eps)
+            if (ix > 0) {
+              alphaMatrix(ix)(iy) += alphaMatrix(ix - 1)(iy) * c.get(x(ix - 1), c.eps)
             }
-            if (y_index > 0) {
-              alphaMatrix(x_index)(y_index) += alphaMatrix(x_index)(y_index - 1) * c.get(c.eps, y(y_index - 1))
+            if (iy > 0) {
+              alphaMatrix(ix)(iy) += alphaMatrix(ix)(iy - 1) * c.get(c.eps, y(iy - 1))
             }
-            if (x_index > 0 && y_index > 0) {
-              alphaMatrix(x_index)(y_index) += alphaMatrix(x_index - 1)(y_index - 1) * c.get(x(x_index - 1), y(y_index - 1))
+            if (ix > 0 && iy > 0) {
+              alphaMatrix(ix)(iy) += alphaMatrix(ix - 1)(iy - 1) * c.get(x(ix - 1), y(iy - 1))
             }
           }
         }
 
         // Backward beta function as defined in page 9 of Oncina paper.
         var betaMatrix = Array.fill[Double](x.size + 1, y.size + 1)(0)
-        for (x_index <- x.size to 0 by -1) {
-          for (y_index <- y.size to 0 by -1) {
-            if (x_index == x.size && y_index == y.size) {
-              betaMatrix(x_index)(y_index) += 1.0
+        for (ix <- x.size to 0 by -1) {
+          for (iy <- y.size to 0 by -1) {
+            if (ix == x.size && iy == y.size) {
+              betaMatrix(ix)(iy) += 1.0
             }
-            if (x_index < x.size && y_index < y.size) {
-              betaMatrix(x_index)(y_index) += betaMatrix(x_index + 1)(y_index + 1) * c.get(x(x_index), y(y_index))
+            if (ix < x.size && iy < y.size) {
+              betaMatrix(ix)(iy) += betaMatrix(ix + 1)(iy + 1) * c.get(x(ix), y(iy))
             }
-            if (x_index < x.size) {
-              betaMatrix(x_index)(y_index) += betaMatrix(x_index + 1)(y_index) * c.get(x(x_index), c.eps)
+            if (ix < x.size) {
+              betaMatrix(ix)(iy) += betaMatrix(ix + 1)(iy) * c.get(x(ix), c.eps)
             }
-            if (y_index < y.size) {
-              betaMatrix(x_index)(y_index) += betaMatrix(x_index)(y_index + 1) * c.get(c.eps, y(y_index))
+            if (iy < y.size) {
+              betaMatrix(ix)(iy) += betaMatrix(ix)(iy + 1) * c.get(c.eps, y(iy))
             }
           }
         }
         
-        val p_y_condi_x = alphaMatrix(x.size)(y.size) * c.get(c.eps,c.eps)
+        var p_y_condi_x = if (compDeltas) {
+          alphaMatrix(x.size)(y.size) * c.get(c.eps,c.eps) 
+        } else 1.0
 
         // Compute delta(b|a) where b != eps, a != eps
         for (ix <- 0 to x.size - 1) {
@@ -125,7 +151,7 @@ object Betas {
             val aa = Utils.convertChar(a)
             val bb = Utils.convertChar(b)
             if (aa < 97 && bb < 97 && aa > 0 && bb > 0) {
-              mat(aa)(bb) += num * (c.get(a, b) * alphaMatrix(ix)(iy) / p_y_condi_x) * betaMatrix(ix + 1)(iy + 1) * c.get(c.eps , c.eps)
+              mat(aa)(bb) += num_y_e * (c.get(a, b) * alphaMatrix(ix)(iy) / p_y_condi_x) * betaMatrix(ix + 1)(iy + 1) * c.get(c.eps , c.eps)
             }
           }
         }
@@ -136,7 +162,7 @@ object Betas {
             val a = x(ix)
             val aa = Utils.convertChar(a)
             if (aa < 97 && aa > 0) {
-              mat(aa)(0) += num * (c.get(a, c.eps) * alphaMatrix(ix)(iy) / p_y_condi_x) * betaMatrix(ix + 1)(iy) * c.get(c.eps , c.eps)
+              mat(aa)(0) += num_y_e * (c.get(a, c.eps) * alphaMatrix(ix)(iy) / p_y_condi_x) * betaMatrix(ix + 1)(iy) * c.get(c.eps , c.eps)
             }
           }
         }
@@ -147,15 +173,14 @@ object Betas {
             val b = y(iy)
             val bb = Utils.convertChar(b)
             if (bb < 97 && bb > 0) {
-              mat(0)(bb) += num * (c.get(c.eps, b) * alphaMatrix(ix)(iy) / p_y_condi_x) * betaMatrix(ix)(iy + 1) * c.get(c.eps , c.eps)
+              mat(0)(bb) += num_y_e * (c.get(c.eps, b) * alphaMatrix(ix)(iy) / p_y_condi_x) * betaMatrix(ix)(iy + 1) * c.get(c.eps , c.eps)
             }
           }
         }
       
-        mat(0)(0) += num
+        mat(0)(0) += num_y_e       
       }
     }
-    
     mat
   }
   
