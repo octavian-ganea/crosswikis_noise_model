@@ -82,7 +82,7 @@ object Betas {
     computeDeltasOrFFs(namesThetaUncorrupted, cc , true)
   }
 
-  // Compute the unnormalized ff value for one entity: ff(b|a) = \sum_m num_m_e * \sum_{xax' = m , yby' = m} alpha(y|x) * c(b|a) * beta(y'|x') 
+  // Compute the unnormalized ff value for one entity: ff(b|a) = \sum_m num_m_e * \sum_{xax' = m , yby' = m} alpha(y|x) * c(b|a) * beta(y'|x') * gamma
   // This should be normalized by dividing each ff(b|a) to \sum_e \sum_m num_m_e
   def computeFFs(
       namesThetaUncorrupted : Array[(String, String, Int, Double)], cc : Broadcast[CondTransducer]) : Array[Array[Double]] = {
@@ -140,7 +140,7 @@ object Betas {
         }
         
         var p_y_condi_x = if (compDeltas) {
-          alphaMatrix(x.size)(y.size) * c.get(c.eps,c.eps) 
+          alphaMatrix(x.size)(y.size) * c.get(c.eps,c.eps)
         } else 1.0
 
         // Compute delta(b|a) where b != eps, a != eps

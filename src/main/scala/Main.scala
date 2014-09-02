@@ -15,7 +15,7 @@ object Main {
   val CONV_EPS = 0.0001
   
   // Controls the percentage of probabilities that we allow for noisy strings : \sum_m p(m) * p(m|m;beta) = SPARSNESS_CT
-  val SPARSNESS_CT = 0.7  
+  val SPARSNESS_CT = 0.6  
    
   // Computes uncorrupted(n) = argmax_m theta_m * p(n|m;beta)
   // Input: array {(m, #(m,e), theta0_m, theta1_m)}
@@ -94,10 +94,9 @@ object Main {
 
       val thetasAux = thetas
       	.mapValues{ namesTheta0Map => Thetas.updateThetasForOneEnt(namesTheta0Map, c)}
-      	.persist(StorageLevel.MEMORY_AND_DISK)
       	
       thetas.unpersist(true)
-      thetas = thetasAux
+      thetas = thetasAux.persist(StorageLevel.MEMORY_AND_DISK)
       
       val nameRepresentativesAndThetas = thetas
       	.mapValues{ namesTheta0Map => Thetas.updateThetasForOneEnt(namesTheta0Map, c)}
@@ -107,10 +106,11 @@ object Main {
       val deltas = nameRepresentativesAndThetas
     	.map{ case (ent, namesThetaUncorrupted) => Betas.computeDeltas(namesThetaUncorrupted, c) }
       	.reduce((mat1, mat2) => Utils.addMatrices(mat1, mat2))
-    
-      /*	
-      for (a <- 0 to 96) {
-      	for (b <- 0 to 96) {
+
+      val S = deltas(0)(0)
+
+      for (a <- 0 to 95) {
+      	for (b <- 0 to 95) {
       	  var aa = "" + (a + 31).toChar
       	  var bb = "" + (b + 31).toChar
       	  if (a == 0) aa = "eps"
@@ -118,13 +118,11 @@ object Main {
       	  println("delta(" + bb + "|" + aa + ") = " + deltas(a)(b))
       	}
       }
-      */
+      println("\n\n")
     
       val unnormalizedFFs = nameRepresentativesAndThetas
       	.map{ case (ent, namesThetaUncorrupted) => Betas.computeFFs(namesThetaUncorrupted, c) }
       	.reduce((mat1, mat2) => Utils.addMatrices(mat1, mat2))
-    	
-      val S = deltas(0)(0)
 
       // Compute \sum_m num_m_e * alpha(m|m)
       val unnormalizedIdStringsMass = nameRepresentativesAndThetas
@@ -133,20 +131,16 @@ object Main {
     
       // Compute \sum_m p(m) * alpha(m|m) by normalizing identicalStringsMass
       val idStringMass = unnormalizedIdStringsMass / S
-      	
-      // This should be identical with SPARSNESS_CT. Otherwise the sparsness condition is not satisfied, which is wrong.
-      assert(Math.abs(SPARSNESS_CT - idStringMass * condTransducer.getFromIntIndexes(0,0)) < 0.0001, 
-          " Identical string mass so far : " + idStringMass * condTransducer.getFromIntIndexes(0,0))
       
       nameRepresentativesAndThetas.unpersist(true)
       
-      var Narray = Array.fill[Double](97)(0)
-      var Farray = Array.fill[Double](97)(0)
+      var Narray = Array.fill[Double](96)(0)
+      var Farray = Array.fill[Double](96)(0)
       var F = SPARSNESS_CT
       var N = S
       
-      for (a <- 0 to 96) {
-        for (b <- 0 to 96) {
+      for (a <- 0 to 95) {
+        for (b <- 0 to 95) {
           if (a != 0 || b != 0) {
             Narray(a) += deltas(a)(b)
             Farray(a) += unnormalizedFFs(a)(b)
@@ -156,16 +150,16 @@ object Main {
         Farray(a) /= S
         F += Farray(a)
         N += Narray(a)
-        println("F(" + a + ") = " + Farray(a))
         println("N(" + a + ") = " + Narray(a))
+        println("F(" + a + ") = " + Farray(a))
       }
       	
       println()
       val lambda = ((N - Narray(0)) * idStringMass - SPARSNESS_CT * N) / ((F - Farray(0)) * idStringMass - SPARSNESS_CT * F)
       val miu = ((N - lambda * F) / (N - Narray(0) -  lambda * (F - Farray(0)))) * (S - lambda * SPARSNESS_CT)
       
-      var miuArray = Array.fill[Double](97)(0)
-      for (a <- 1 to 96) {
+      var miuArray = Array.fill[Double](96)(0)
+      for (a <- 1 to 95) {
         miuArray(a) = ((N - lambda * F) / (N - Narray(0) -  lambda * (F - Farray(0)))) * (Narray(a) - lambda * Farray(a))
         println("miu(" + a + ") = " + miuArray(a))
       }
@@ -178,8 +172,8 @@ object Main {
       println("Final results : ")
     
       error = 0.0
-      for (a <- 0 to 96) {
-        for (b <- 0 to 96) {
+      for (a <- 0 to 95) {
+        for (b <- 0 to 95) {
           var aa = "" + (a + 31).toChar
           var bb = "" + (b + 31).toChar
           if (a == 0) aa = "eps"
