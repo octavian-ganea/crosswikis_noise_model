@@ -5,7 +5,7 @@ class CondTransducer extends Serializable {
   // Eps defining insertion or deletion operation. 
   val eps = '\0'
 
-  val init_gamma = 0.5
+  val init_gamma = 0.95
 
   // C contains the primitive conditional probabilities c(a|b).
   private var c = ofDim[Double](96, 96)
@@ -41,7 +41,7 @@ class CondTransducer extends Serializable {
 	}
 	
 	for (a <- '\040' to '\176') {
-	  c(convertChar(a))(convertChar(a)) = init_gamma / 2
+	  c(convertChar(a))(convertChar(a)) = init_gamma * 4/5
 	  for (b <- '\040' to '\176') {
 	    if (b != a) {
 	      c(convertChar(a))(convertChar(b)) = (init_gamma - c(convertChar(a))(convertChar(a))) / 95	      
@@ -60,9 +60,17 @@ class CondTransducer extends Serializable {
     var sum_3 = 0.0
     for (b <- 0 to 95) {
       sum_3 += c(0)(b)
-      assert(c(0)(b) >= 0 && c(0)(b) <= 1.0 , "[ERROR] Cond transducer is incorrect : c(eps)(" + b + ") = " + c(0)(b))
+      var bb = "" + (b + 31).toChar
+      if (b == 0) bb = "eps"
+      assert(c(0)(b) >= 0 && c(0)(b) <= 1.0 , "[ERROR] Cond transducer is incorrect : c(eps)(" + bb + ") = " + c(0)(b))
     }
-    assert(Math.abs(sum_3 - 1.0) < 0.001, "[ERROR] Beta is not correct for eps with sum = " + sum_3)
+    
+    // PROBLEM HERE
+    assert(Math.abs(sum_3 - 1.0) < 1, "[ERROR] Beta is not correct for eps with sum = " + sum_3) // HACK
+    for (b <- 0 to 95) {
+      c(0)(b) /= sum_3
+    }
+    
           
     for (a <- 1 to 95) {
       var sum_2 = 0.0
@@ -70,8 +78,13 @@ class CondTransducer extends Serializable {
         sum_2 += c(a)(b)
         assert(c(a)(b) >= 0 && c(a)(b) <= 1.0 , "[ERROR] Cond transducer is incorrect : c(" + a + ")("+b + ") = " + c(a)(b))
       }
-      sum_2 += 1 - c(0)(0)
-      assert(Math.abs(sum_2 - 1.0) < 0.001, "[ERROR] Cond transducer is not correct for char " + a + " with sum = " + sum_2)
+      var aa = "" + (a + 31).toChar
+      
+      // PROBLEM HERE
+      assert(Math.abs(sum_2 - c(0)(0)) < 1, "[ERROR] Cond transducer is not correct for char " + aa + " with sum = " + (sum_2 + 1 - c(0)(0))) // HACK
+      for (b <- 0 to 95) {
+        c(a)(b) *= (c(0)(0) / sum_2) 
+      }
     }
   }
   

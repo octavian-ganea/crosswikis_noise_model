@@ -18,8 +18,8 @@ object ParseOriginalCrosswikisFile {
           numNameEnt += reducedSerialScore.last.split("/").head.toInt
         }
       }
-      if (numNameEnt >= 5 && !Utils.isGeneralPlaceholder(ent, name) ) {
-    	  mentionCountsArray :+= (name, numNameEnt)
+      if (numNameEnt >= 5 && !Utils.isGeneralPlaceholder(ent, name)) {
+        mentionCountsArray :+= (name, numNameEnt)
       }
     }
     // Sort array descending by the counts of the name

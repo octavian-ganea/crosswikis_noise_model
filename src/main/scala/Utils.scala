@@ -16,11 +16,11 @@ object Utils {
   // Human readable output formatting.
   // Input: hashmap {m : (uncorrupted(m), #(m,e), theta0_m, theta1_m)}
   // Output: output text in a human readable format
-  def toString_ThetasMapForOneEntity(ent: String, namesMap : Map[String, (String, Int, Double)]) : String = {
+  def toString_ThetasMapForOneEntity(ent: String, namesMap : Array[(String, String, Int, Double)]) : String = {
     var output = ent + "\t==>\n" 
-    for ((name, (realName, num_name_ent, theta_1)) <- namesMap) {
+    for ((name, realName, num_name_ent, theta_1) <- namesMap) {
       if (name != realName) output += "**"
-      output += "\t" + name + "\t ---> " + realName + "\t" + theta_1 + "\n"
+      output += "\t" + name + "\t ---> " + realName + "\n"
     }
     if (namesMap.size == 0) ""
     else output
@@ -34,12 +34,21 @@ object Utils {
   
   
   def addMatrices(mat1 : Array[Array[Double]], mat2 : Array[Array[Double]]) : Array[Array[Double]] = {
-    var mat = mat1
-    for (i <- 0 to 96) {
-      for (j <- 0 to 96) {
+    var mat = mat1.clone
+    for (i <- 0 to 95) {
+      for (j <- 0 to 95) {
         mat(i)(j) += mat2(i)(j)
       }
     }
     mat
   }
+
+  def addVectors(vec1 : Array[Double], vec2 : Array[Double]) : Array[Double] = {
+    var v = vec1.clone
+    for (i <- 0 to 95) {
+      v(i) += vec2(i)
+    }
+  	v
+  }
+
 }
